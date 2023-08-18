@@ -1,5 +1,5 @@
 use crate as pallet_template;
-use frame_support::traits::{ConstU16, ConstU64};
+use frame_support::traits::{ConstU16, ConstU32, ConstU64};
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -13,7 +13,7 @@ frame_support::construct_runtime!(
 	pub enum Test
 	{
 		System: frame_system,
-		TemplateModule: pallet_template,
+		RealEstate: pallet_template,
 	}
 );
 
@@ -45,7 +45,7 @@ impl frame_system::Config for Test {
 
 impl pallet_template::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = ();
+	type MaxNumberOfTenants = ConstU32<6>;
 }
 
 // Build genesis storage according to the mock runtime.
