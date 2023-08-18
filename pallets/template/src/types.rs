@@ -69,6 +69,20 @@ pub struct Offer<T: Config> {
     pub offer_status: OfferStatus,
 }
 
+impl<T: Config> Offer<T> {
+    pub fn new(offer_id: OfferId, property_id: PropertyId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>) -> Offer<T> {
+        Offer {
+            offer_id,
+            property_id,
+            offer_price,
+            offer_start_date,
+            offer_end_date,
+            prospective_tenant_ids,
+            offer_status: OfferStatus::Pending,
+        }
+    }
+}
+
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
 pub enum OfferStatus {
     Cancelled,

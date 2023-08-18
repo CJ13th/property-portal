@@ -34,6 +34,7 @@ pub mod pallet {
 
 		type MaxNumberOfTenants: Get<u32>;
 		type MaxNumberOfAgents: Get<u32>;
+		type MaxOffersPerListing: Get<u32>;
 	}
 
 	#[pallet::storage]
@@ -65,6 +66,14 @@ pub mod pallet {
 	pub type Offers<T: Config> = StorageMap<_, Blake2_128Concat, OfferId, Offer<T>>;
 
 	#[pallet::storage]
+	// Offers on listings by applicant
+	pub type ApplicantOffers<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, ListingId, Offer<T>>;
+
+	#[pallet::storage]
+	// All offers for a listing
+	pub type ListingOffers<T: Config> = StorageMap<_, Blake2_128Concat, ListingId, BoundedVec<Offer<T>, T::MaxOffersPerListing>>;
+
+	#[pallet::storage]
 	// Used to generate new offer id's
 	pub type OfferCounter<T: Config> = StorageValue<_, OfferId>;
 
@@ -84,11 +93,17 @@ pub mod pallet {
 	pub enum Error<T> {
 		TooManyProperties,
 		TooManyListings,
+		TooManyOffers,
 		LandlordNotVerified,
 		PropertyDoesNotExist,
 		ListingDoesNotExist,
 		// Not autorized to perform this action. 
-		Unauthorized
+		Unauthorized,
+		InvalidOfferStartDate,
+		TenantsIdsCannotBeEmpty,
+		AllApplicantsMustBeVerified,
+		TooManyOffersOnListing,
+
 	}
 
 	#[pallet::call]
@@ -157,10 +172,25 @@ pub mod pallet {
 			let applicant_id = ensure_signed(origin)?;
 			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
 			ensure!(Listings::<T>::contains_key(&listing_id), Error::<T>::ListingDoesNotExist);
+			let offer_listing = Listings::<T>::get(&listing_id).unwrap();
+			let current_block_number =  frame_system::Pallet::<T>::block_number();
+			ensure!(offer_start_date >= current_block_number
+					&& offer_start_date > offer_end_date
+					&& offer_start_date >= offer_listing.availability_date, Error::<T>::InvalidOfferStartDate);
 			
-			// offer_start_date should not be before available date
-			// prospective_tenant_ids should all be in the verified list
-
+			ensure!(prospective_tenant_ids.len() > 0, Error::<T>::TenantsIdsCannotBeEmpty);
+			ensure!(&prospective_tenant_ids.iter().all(|applicant_id| VerifiedApplicants::<T>::contains_key(&applicant_id)), Error::<T>::AllApplicantsMustBeVerified);
+			
+			let offer_count = OfferCounter::<T>::get().unwrap_or_default();
+			ensure!(offer_count.checked_add(1).is_some(), Error::<T>::TooManyOffers); // change to storage overflow
+			let new_offer_id = offer_count + 1;
+			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
+			// We should prevent people from making multiple offers on a property.
+			let mut offers_on_listing = ListingOffers::<T>::get(&listing_id).unwrap_or(BoundedVec::new());
+			ensure!(!offers_on_listing.is_full(), Error::<T>::TooManyOffersOnListing);
+			offers_on_listing.push(new_offer);
+			ListingOffers::<T>::insert(&listing_id, offers_on_listing);
+			ApplicantOffers::<T>::insert(&applicant_id, &listing_id, &new_offer);
 
 			Self::deposit_event(Event::NewOfferSubmitted { listing_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids });
 			Ok(())
