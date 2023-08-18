@@ -15,7 +15,7 @@ mod tests;
 mod benchmarking;
 
 mod types;
-pub use types::{PropertyId, Property, Listing, Tenancy, Offer, OfferId};
+pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, Offer, OfferId};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -33,6 +33,7 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
 		type MaxNumberOfTenants: Get<u32>;
+		type MaxNumberOfAgents: Get<u32>;
 	}
 
 	#[pallet::storage]
@@ -44,12 +45,20 @@ pub mod pallet {
 	pub type VerifiedLandlords<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, ()>;
 
 	#[pallet::storage]
-	// A structure to contain unique properties
+	// A structure to contain unique property id's
 	pub type Properties<T: Config> = StorageMap<_, Blake2_128Concat, PropertyId, Property<T>>;
 
 	#[pallet::storage]
-	// A a counter for properties
+	// Used to generate new property id's
 	pub type PropertyCounter<T: Config> = StorageValue<_, PropertyId>;
+
+	#[pallet::storage]
+	// Property listings
+	pub type Listings<T: Config> = StorageMap<_, Blake2_128Concat, PropertyId, Listing<T>>;
+
+	#[pallet::storage]
+	// Used to generate new listing id's
+	pub type ListingCounter<T: Config> = StorageValue<_, ListingId>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -57,11 +66,17 @@ pub mod pallet {
 		NewApplicantRegistered { applicant_id: T::AccountId },
 		NewLandlordRegistered { landlord_id: T::AccountId },
 		NewPropertyRegistered { address: T::Hash, postal_code: T::Hash },
+		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>}
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
-		TooManyProperties
+		TooManyProperties,
+		TooManyListings,
+		LandlordNotVerified,
+		PropertyDoesNotExist,
+		// Not autorized to perform this action. 
+		Unauthorized
 	}
 
 	#[pallet::call]
@@ -99,6 +114,28 @@ pub mod pallet {
 			Properties::<T>::insert(&property_count + 1, new_property);
 
 			Self::deposit_event(Event::NewPropertyRegistered { address, postal_code });
+			Ok(())
+		}
+
+		#[pallet::call_index(3)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn create_listing(origin: OriginFor<T>, property_id: PropertyId, rental_price: u32, availability_date: BlockNumberFor<T>) -> DispatchResult {
+			// Only landlords and their agents should be able to list properties
+			let landlord_id = ensure_signed(origin)?;
+			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
+
+			let property = Properties::<T>::get(property_id).unwrap();
+			ensure!(property.landlord_id == landlord_id, Error::<T>::Unauthorized);
+
+			let listing_count = ListingCounter::<T>::get().unwrap_or_default();
+			ensure!(listing_count.checked_add(1).is_some(), Error::<T>::TooManyListings);
+
+			let new_listing_id = listing_count + 1;
+			let new_listing = property.create_listing(new_listing_id, rental_price, availability_date, landlord_id);
+			
+			Listings::<T>::insert(new_listing_id, new_listing);
+
+			Self::deposit_event(Event::NewListingCreated { property_id, rental_price, availability_date });
 			Ok(())
 		}
 	}

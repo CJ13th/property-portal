@@ -4,6 +4,7 @@ use frame_system::pallet_prelude::*;
 use frame_support::pallet_prelude::*;
 
 pub type PropertyId = u128;
+pub type ListingId = u128;
 pub type OfferId = u128;
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
@@ -11,6 +12,7 @@ pub type OfferId = u128;
 pub struct Property<T: Config> {
     pub property_id: PropertyId,
     pub landlord_id: T::AccountId,
+    // pub assigned_agents: BoundedVec<T::AccountId, T::MaxNumberOfAgents>,
     pub address: T::Hash,
     pub postal_code: T::Hash,
 }
@@ -25,8 +27,9 @@ impl<T: Config> Property<T> {
         }
     }
 
-    pub fn create_listing(self, rental_price: u32, availability_date: BlockNumberFor<T>, lister: T::AccountId) -> Listing<T> {
+    pub fn create_listing(self, listing_id: ListingId, rental_price: u32, availability_date: BlockNumberFor<T>, lister: T::AccountId) -> Listing<T> {
         Listing {
+            listing_id,
             property_id: self.property_id,
             rental_price, 
             availability_date,
@@ -38,6 +41,7 @@ impl<T: Config> Property<T> {
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
 #[scale_info(skip_type_params(T))]
 pub struct Listing<T: Config> {
+    pub listing_id: ListingId,
     pub property_id: PropertyId,
     pub rental_price: u32,
     pub availability_date: BlockNumberFor<T>,
@@ -63,3 +67,4 @@ pub struct Offer<T: Config> {
     pub offer_end_date: BlockNumberFor<T>,
     pub prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>
 }
+

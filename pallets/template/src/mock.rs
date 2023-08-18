@@ -46,6 +46,7 @@ impl frame_system::Config for Test {
 impl pallet_template::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type MaxNumberOfTenants = ConstU32<6>;
+	type MaxNumberOfAgents = ConstU32<6>;
 }
 
 // Build genesis storage according to the mock runtime.
