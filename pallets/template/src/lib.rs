@@ -15,7 +15,7 @@ mod tests;
 mod benchmarking;
 
 mod types;
-pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, Offer, OfferId};
+pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, Offer, OfferId, OfferStatus};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -60,13 +60,24 @@ pub mod pallet {
 	// Used to generate new listing id's
 	pub type ListingCounter<T: Config> = StorageValue<_, ListingId>;
 
+	#[pallet::storage]
+	// Offers on properties
+	pub type Offers<T: Config> = StorageMap<_, Blake2_128Concat, OfferId, Offer<T>>;
+
+	#[pallet::storage]
+	// Used to generate new offer id's
+	pub type OfferCounter<T: Config> = StorageValue<_, OfferId>;
+
+	
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		NewApplicantRegistered { applicant_id: T::AccountId },
 		NewLandlordRegistered { landlord_id: T::AccountId },
 		NewPropertyRegistered { address: T::Hash, postal_code: T::Hash },
-		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>}
+		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>},
+		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>},
 	}
 
 	#[pallet::error]
@@ -75,6 +86,7 @@ pub mod pallet {
 		TooManyListings,
 		LandlordNotVerified,
 		PropertyDoesNotExist,
+		ListingDoesNotExist,
 		// Not autorized to perform this action. 
 		Unauthorized
 	}
@@ -136,6 +148,21 @@ pub mod pallet {
 			Listings::<T>::insert(new_listing_id, new_listing);
 
 			Self::deposit_event(Event::NewListingCreated { property_id, rental_price, availability_date });
+			Ok(())
+		}
+
+		#[pallet::call_index(4)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn submit_offer(origin: OriginFor<T>, listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>) -> DispatchResult {
+			let applicant_id = ensure_signed(origin)?;
+			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
+			ensure!(Listings::<T>::contains_key(&listing_id), Error::<T>::ListingDoesNotExist);
+			
+			// offer_start_date should not be before available date
+			// prospective_tenant_ids should all be in the verified list
+
+
+			Self::deposit_event(Event::NewOfferSubmitted { listing_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids });
 			Ok(())
 		}
 	}

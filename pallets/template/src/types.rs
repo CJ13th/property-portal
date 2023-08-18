@@ -65,6 +65,14 @@ pub struct Offer<T: Config> {
     pub offer_price: u32,
     pub offer_start_date: BlockNumberFor<T>,
     pub offer_end_date: BlockNumberFor<T>,
-    pub prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>
+    pub prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>,
+    pub offer_status: OfferStatus,
 }
 
+#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+pub enum OfferStatus {
+    Cancelled,
+    Pending,
+    Accepted,
+    Rejected
+}
