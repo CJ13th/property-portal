@@ -7,6 +7,7 @@ pub type PropertyId = u128;
 pub type OfferId = u128;
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+#[scale_info(skip_type_params(T))]
 pub struct Property<T: Config> {
     pub property_id: PropertyId,
     pub landlord_id: T::AccountId,
@@ -14,7 +15,28 @@ pub struct Property<T: Config> {
     pub postal_code: T::Hash,
 }
 
+impl<T: Config> Property<T> {
+    pub fn new(property_id: PropertyId, landlord_id: T::AccountId, address: T::Hash, postal_code: T::Hash) -> Property<T> {
+        Property {
+            property_id,
+            landlord_id,
+            address,
+            postal_code
+        }
+    }
+
+    pub fn create_listing(self, rental_price: u32, availability_date: BlockNumberFor<T>, lister: T::AccountId) -> Listing<T> {
+        Listing {
+            property_id: self.property_id,
+            rental_price, 
+            availability_date,
+            lister
+        }
+    }
+}
+
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+#[scale_info(skip_type_params(T))]
 pub struct Listing<T: Config> {
     pub property_id: PropertyId,
     pub rental_price: u32,
@@ -23,6 +45,7 @@ pub struct Listing<T: Config> {
 }
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+#[scale_info(skip_type_params(T))]
 pub struct Tenancy<T: Config> {
     pub property_id: PropertyId,
     pub rental_price: u32,
@@ -31,6 +54,7 @@ pub struct Tenancy<T: Config> {
 }
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+#[scale_info(skip_type_params(T))]
 pub struct Offer<T: Config> {
     pub offer_id: OfferId,
     pub property_id: PropertyId,
