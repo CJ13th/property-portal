@@ -48,6 +48,7 @@ impl pallet_template::Config for Test {
 	type MaxNumberOfTenants = ConstU32<6>;
 	type MaxNumberOfAgents = ConstU32<6>;
 	type MaxOffersPerListing = ConstU32<20>;
+	type MaxOffersPerApplicant = ConstU32<5>;
 }
 
 // Build genesis storage according to the mock runtime.

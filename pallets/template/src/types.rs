@@ -6,6 +6,8 @@ use frame_support::pallet_prelude::*;
 pub type PropertyId = u128;
 pub type ListingId = u128;
 pub type OfferId = u128;
+pub type TenancyId = u128;
+
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
 #[scale_info(skip_type_params(T))]
@@ -55,6 +57,19 @@ pub struct Tenancy<T: Config> {
     pub rental_price: u32,
     pub start_date: BlockNumberFor<T>,
     pub end_date: BlockNumberFor<T>,
+    pub tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>,
+}
+
+impl<T: Config> Tenancy<T> {
+    pub fn new(offer: Offer<T>) -> Tenancy<T> {
+        Tenancy {
+            property_id: offer.property_id,
+            rental_price: offer.offer_price,
+            start_date: offer.offer_start_date,
+            end_date: offer.offer_end_date,
+            tenant_ids: offer.prospective_tenant_ids,
+        }
+    }
 }
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]

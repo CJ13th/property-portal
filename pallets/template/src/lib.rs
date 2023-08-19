@@ -15,7 +15,7 @@ mod tests;
 mod benchmarking;
 
 mod types;
-pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, Offer, OfferId, OfferStatus};
+pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, TenancyId, Offer, OfferId, OfferStatus};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -35,6 +35,7 @@ pub mod pallet {
 		type MaxNumberOfTenants: Get<u32>;
 		type MaxNumberOfAgents: Get<u32>;
 		type MaxOffersPerListing: Get<u32>;
+		type MaxOffersPerApplicant: Get<u32>;
 	}
 
 	#[pallet::storage]
@@ -67,16 +68,23 @@ pub mod pallet {
 
 	#[pallet::storage]
 	// Offers on listings by applicant
-	pub type ApplicantOffers<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, ListingId, Offer<T>>;
+	// pub type ApplicantOffers<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, ListingId, OfferId>;
+	pub type ApplicantOffers<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<OfferId, T::MaxOffersPerApplicant>>;
 
 	#[pallet::storage]
 	// All offers for a listing
-	pub type ListingOffers<T: Config> = StorageMap<_, Blake2_128Concat, ListingId, BoundedVec<Offer<T>, T::MaxOffersPerListing>>;
+	pub type ListingOffers<T: Config> = StorageMap<_, Blake2_128Concat, ListingId, BoundedVec<OfferId, T::MaxOffersPerListing>>;
 
 	#[pallet::storage]
 	// Used to generate new offer id's
 	pub type OfferCounter<T: Config> = StorageValue<_, OfferId>;
 
+
+	#[pallet::storage]
+	// A structure to hold information about tenancies
+	pub type Tenancies<T: Config> = StorageMap<_, Blake2_128Concat, PropertyId, Tenancy<T>>;
+
+	
 	
 
 	#[pallet::event]
@@ -87,6 +95,7 @@ pub mod pallet {
 		NewPropertyRegistered { address: T::Hash, postal_code: T::Hash },
 		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>},
 		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>},
+		OfferAccepted {offer_id: OfferId},
 	}
 
 	#[pallet::error]
@@ -97,12 +106,15 @@ pub mod pallet {
 		LandlordNotVerified,
 		PropertyDoesNotExist,
 		ListingDoesNotExist,
+		OfferDoesNotExist,
 		// Not autorized to perform this action. 
 		Unauthorized,
 		InvalidOfferStartDate,
 		TenantsIdsCannotBeEmpty,
 		AllApplicantsMustBeVerified,
 		TooManyOffersOnListing,
+		TenancyAlreadyExists,
+		MaxOffersForApplicantReached,
 
 	}
 
@@ -175,7 +187,7 @@ pub mod pallet {
 			let offer_listing = Listings::<T>::get(&listing_id).unwrap();
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
 			ensure!(offer_start_date >= current_block_number
-					&& offer_start_date > offer_end_date
+					&& offer_start_date < offer_end_date
 					&& offer_start_date >= offer_listing.availability_date, Error::<T>::InvalidOfferStartDate);
 			
 			ensure!(prospective_tenant_ids.len() > 0, Error::<T>::TenantsIdsCannotBeEmpty);
@@ -185,15 +197,49 @@ pub mod pallet {
 			ensure!(offer_count.checked_add(1).is_some(), Error::<T>::TooManyOffers); // change to storage overflow
 			let new_offer_id = offer_count + 1;
 			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
+			// new_offer.clone() does not work??
+			// let new_offer2 = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
 			// We should prevent people from making multiple offers on a property.
 			let mut offers_on_listing = ListingOffers::<T>::get(&listing_id).unwrap_or(BoundedVec::new());
-			ensure!(!offers_on_listing.is_full(), Error::<T>::TooManyOffersOnListing);
-			offers_on_listing.push(new_offer);
-			ListingOffers::<T>::insert(&listing_id, offers_on_listing);
-			ApplicantOffers::<T>::insert(&applicant_id, &listing_id, &new_offer);
+			offers_on_listing.try_push(new_offer_id).map_err(|_| Error::<T>::TooManyOffersOnListing)?;
+
+			let mut all_applicant_offers = ApplicantOffers::<T>::get(&applicant_id).unwrap_or(BoundedVec::new());
+			all_applicant_offers.try_push(new_offer_id).map_err(|_| Error::<T>::MaxOffersForApplicantReached)?;
+
+
+			ListingOffers::<T>::insert(&listing_id, &offers_on_listing);
+			ApplicantOffers::<T>::insert(&applicant_id, &all_applicant_offers);
+			Offers::<T>::insert(&new_offer_id, &new_offer);
 
 			Self::deposit_event(Event::NewOfferSubmitted { listing_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids });
 			Ok(())
 		}
+
+		#[pallet::call_index(5)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn accept_offer(origin: OriginFor<T>, offer_id: OfferId) -> DispatchResult {
+			let landlord_id = ensure_signed(origin)?;
+			ensure!(Offers::<T>::contains_key(&offer_id), Error::<T>::OfferDoesNotExist);
+			let mut offer = Offers::<T>::get(&offer_id).unwrap();
+			let property_id = offer.property_id;
+			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
+			let property = Properties::<T>::get(property_id).unwrap();
+			ensure!(property.landlord_id == landlord_id, Error::<T>::Unauthorized);
+			ensure!(!Tenancies::<T>::contains_key(&property_id), Error::<T>::TenancyAlreadyExists);
+			offer.offer_status = OfferStatus::Accepted;
+			Offers::<T>::insert(&offer_id, &offer);
+			let new_tenancy = Tenancy::new(offer);
+			Tenancies::<T>::insert(&property_id, new_tenancy);
+
+			// Locked funds will be transferred to the landlord	
+
+			Self::deposit_event(Event::OfferAccepted {offer_id});
+			// Self::deposit_event(Event::TenancyCreated {});
+			Ok(())
+		}
+
+		// cancel offer
+		// accept offer
+		// reject offer
 	}
 }
