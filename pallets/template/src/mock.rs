@@ -1,5 +1,5 @@
 use crate as pallet_template;
-use frame_support::traits::{ConstU16, ConstU32, ConstU64};
+use frame_support::traits::{ConstU16, ConstU32, ConstU64, ConstU128};
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -7,6 +7,7 @@ use sp_runtime::{
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
+type Balance = u128;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
@@ -14,6 +15,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system,
 		RealEstate: pallet_template,
+		Balances: pallet_balances,
 	}
 );
 
@@ -34,7 +36,7 @@ impl frame_system::Config for Test {
 	type BlockHashCount = ConstU64<250>;
 	type Version = ();
 	type PalletInfo = PalletInfo;
-	type AccountData = ();
+	type AccountData = pallet_balances::AccountData<Balance>;
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 	type SystemWeightInfo = ();
@@ -43,12 +45,30 @@ impl frame_system::Config for Test {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+impl pallet_balances::Config for Test {
+	type Balance = Balance;
+	type DustRemoval = ();
+	type RuntimeEvent = RuntimeEvent;
+	type ExistentialDeposit = ConstU128<1>;
+	type AccountStore = System;
+	type WeightInfo = ();
+	type MaxLocks = ConstU32<10>;
+	type MaxReserves = ();
+	type ReserveIdentifier = [u8; 8];
+	type RuntimeHoldReason = ();
+	type FreezeIdentifier = RuntimeFreezeReason;
+	type MaxHolds = ConstU32<10>;
+	type MaxFreezes = ConstU32<10>;
+}
+
 impl pallet_template::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type MaxNumberOfTenants = ConstU32<6>;
 	type MaxNumberOfAgents = ConstU32<6>;
 	type MaxOffersPerListing = ConstU32<20>;
 	type MaxOffersPerApplicant = ConstU32<5>;
+	type NativeBalance = Balances;
+	type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
 // Build genesis storage according to the mock runtime.

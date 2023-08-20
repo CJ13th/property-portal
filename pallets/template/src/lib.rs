@@ -17,11 +17,18 @@ mod benchmarking;
 mod types;
 pub use types::{PropertyId, Property, Listing, ListingId, Tenancy, TenancyId, Offer, OfferId, OfferStatus};
 
+
+use frame_support::traits::fungible;
+pub type BalanceOf<T> = <<T as Config>::NativeBalance as fungible::Inspect<
+	<T as frame_system::Config>::AccountId,
+>>::Balance;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use frame_support::traits::{fungible, fungible::{MutateFreeze, Inspect as OtherInspect}};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -36,6 +43,21 @@ pub mod pallet {
 		type MaxNumberOfAgents: Get<u32>;
 		type MaxOffersPerListing: Get<u32>;
 		type MaxOffersPerApplicant: Get<u32>;
+
+		/// Type to access the Balances Pallet.
+		type NativeBalance: fungible::Inspect<Self::AccountId>
+			+ fungible::Mutate<Self::AccountId>
+			+ fungible::hold::Inspect<Self::AccountId>
+			+ fungible::hold::Mutate<Self::AccountId>
+			+ fungible::freeze::Inspect<Self::AccountId, Id = Self::RuntimeFreezeReason>
+			+ fungible::freeze::Mutate<Self::AccountId>;
+
+		type RuntimeFreezeReason: From<FreezeReason>;
+	}
+
+	#[pallet::composite_enum]
+	pub enum FreezeReason {
+		Offer(OfferId),
 	}
 
 	#[pallet::storage]
@@ -115,7 +137,7 @@ pub mod pallet {
 		TooManyOffersOnListing,
 		TenancyAlreadyExists,
 		MaxOffersForApplicantReached,
-
+		InsufficientFundsForOffer,
 	}
 
 	#[pallet::call]
@@ -184,6 +206,7 @@ pub mod pallet {
 			let applicant_id = ensure_signed(origin)?;
 			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
 			ensure!(Listings::<T>::contains_key(&listing_id), Error::<T>::ListingDoesNotExist);
+			ensure!(T::NativeBalance::total_balance(&applicant_id) >= offer_price.into(), Error::<T>::InsufficientFundsForOffer);
 			let offer_listing = Listings::<T>::get(&listing_id).unwrap();
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
 			ensure!(offer_start_date >= current_block_number
@@ -211,6 +234,12 @@ pub mod pallet {
 			ApplicantOffers::<T>::insert(&applicant_id, &all_applicant_offers);
 			Offers::<T>::insert(&new_offer_id, &new_offer);
 
+			T::NativeBalance::set_freeze(
+				&FreezeReason::Offer(new_offer_id).into(),
+				&applicant_id,
+				offer_price.into(),
+			);
+
 			Self::deposit_event(Event::NewOfferSubmitted { listing_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids });
 			Ok(())
 		}
@@ -221,6 +250,8 @@ pub mod pallet {
 			let landlord_id = ensure_signed(origin)?;
 			ensure!(Offers::<T>::contains_key(&offer_id), Error::<T>::OfferDoesNotExist);
 			let mut offer = Offers::<T>::get(&offer_id).unwrap();
+			let current_block_number =  frame_system::Pallet::<T>::block_number();
+			ensure!(offer.offer_start_date > current_block_number, Error::<T>::InvalidOfferStartDate); // add a buffer time maybe? start date must be at least curr + 100 blocks?
 			let property_id = offer.property_id;
 			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
 			let property = Properties::<T>::get(property_id).unwrap();
@@ -238,8 +269,5 @@ pub mod pallet {
 			Ok(())
 		}
 
-		// cancel offer
-		// accept offer
-		// reject offer
 	}
 }
