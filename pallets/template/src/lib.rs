@@ -5,6 +5,7 @@
 /// <https://docs.substrate.io/reference/frame-pallets/>
 pub use pallet::*;
 
+
 #[cfg(test)]
 mod mock;
 
@@ -28,7 +29,9 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use frame_support::traits::{fungible, fungible::{MutateFreeze, Inspect as OtherInspect}};
+	use frame_support::traits::{fungible, fungible::{MutateFreeze, Inspect as OtherInspect, Mutate}};
+	use frame_support::dispatch::RawOrigin;
+	use frame_support::traits::tokens::Preservation::Preserve;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -219,7 +222,7 @@ pub mod pallet {
 			let offer_count = OfferCounter::<T>::get().unwrap_or_default();
 			ensure!(offer_count.checked_add(1).is_some(), Error::<T>::TooManyOffers); // change to storage overflow
 			let new_offer_id = offer_count + 1;
-			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
+			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, applicant_id.clone(), prospective_tenant_ids.clone());
 			// new_offer.clone() does not work??
 			// let new_offer2 = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
 			// We should prevent people from making multiple offers on a property.
@@ -258,12 +261,18 @@ pub mod pallet {
 			ensure!(property.landlord_id == landlord_id, Error::<T>::Unauthorized);
 			ensure!(!Tenancies::<T>::contains_key(&property_id), Error::<T>::TenancyAlreadyExists);
 			offer.offer_status = OfferStatus::Accepted;
+			T::NativeBalance::transfer(&offer.lead_tenant, &landlord_id, offer.offer_price.into(), Preserve);
 			Offers::<T>::insert(&offer_id, &offer);
 			let new_tenancy = Tenancy::new(offer);
 			Tenancies::<T>::insert(&property_id, new_tenancy);
 
-			// Locked funds will be transferred to the landlord	
-
+			// Locked funds will be transferred to the landlord
+			// need to start thinking about multiple tenants
+			// e.g offer of 1000 accepted from 4 tenants
+			// 250 locked for each, 250 from each transferred to landlord.
+			// Also need a way to override this so that custom amounts can be locked/sent.
+			// Two flat mates might share but one has ensuite and pay 100 more than the other.
+			
 			Self::deposit_event(Event::OfferAccepted {offer_id});
 			// Self::deposit_event(Event::TenancyCreated {});
 			Ok(())

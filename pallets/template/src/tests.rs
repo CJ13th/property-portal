@@ -45,17 +45,16 @@ fn balances_test() {
 		// Go past genesis block so events get deposited
 		System::set_block_number(1);
 		assert_ok!(RealEstate::register_applicant(RuntimeOrigin::root(), 1));
-		let _ = <Balances as fungible::Mutate<_>>::mint_into(&1, 900);
-		assert_eq!(Balances::free_balance(&1), 900);
+		let _ = <Balances as fungible::Mutate<_>>::mint_into(&1, 1000);
+		assert_eq!(Balances::free_balance(&1), 1000);
 		assert_ok!(RealEstate::register_property(RuntimeOrigin::root(), sp_core::H256::repeat_byte(1), sp_core::H256::repeat_byte(1), 2));
 		assert_ok!(RealEstate::create_listing(RuntimeOrigin::signed(2), 1, 1000, 50));
 		let mut tenants = BoundedVec::new();
 		tenants.try_push(1).unwrap();
 		assert_ok!(RealEstate::submit_offer(RuntimeOrigin::signed(1), 1, 900, 51, 101, tenants));
 
-
 		assert_eq!(
-			<Balances as fungible::Mutate<_>>::transfer(&1, &2, 50, Expendable),
+			<Balances as fungible::Mutate<_>>::transfer(&1, &2, 101, Expendable),
 			Err(DispatchError::Token(Frozen))
 		);
 
