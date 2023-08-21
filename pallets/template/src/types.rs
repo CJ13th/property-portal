@@ -9,7 +9,7 @@ pub type OfferId = u128;
 pub type TenancyId = u128;
 
 
-#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone)]
+#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq)]
 #[scale_info(skip_type_params(T))]
 pub struct Property<T: Config> {
     pub property_id: PropertyId,

@@ -172,10 +172,11 @@ pub mod pallet {
 
 			let property_count = PropertyCounter::<T>::get().unwrap_or_default();
 			ensure!(property_count.checked_add(1).is_some(), Error::<T>::TooManyProperties);
+			let new_property_count = property_count + 1;
 			// The id should actually be a combination of the address, postal code and landlord id hashed
-			let new_property = Property::new(property_count, landlord_id, address, postal_code);
+			let new_property = Property::new(new_property_count, landlord_id, address, postal_code);
 			
-			Properties::<T>::insert(&property_count + 1, new_property);
+			Properties::<T>::insert(&new_property_count, new_property);
 
 			Self::deposit_event(Event::NewPropertyRegistered { address, postal_code });
 			Ok(())
@@ -261,6 +262,7 @@ pub mod pallet {
 			ensure!(property.landlord_id == landlord_id, Error::<T>::Unauthorized);
 			ensure!(!Tenancies::<T>::contains_key(&property_id), Error::<T>::TenancyAlreadyExists);
 			offer.offer_status = OfferStatus::Accepted;
+			T::NativeBalance::thaw(&FreezeReason::Offer(offer_id).into(), &offer.lead_tenant);
 			T::NativeBalance::transfer(&offer.lead_tenant, &landlord_id, offer.offer_price.into(), Preserve);
 			Offers::<T>::insert(&offer_id, &offer);
 			let new_tenancy = Tenancy::new(offer);
@@ -278,5 +280,10 @@ pub mod pallet {
 			Ok(())
 		}
 
+	}
+	impl<T: Config> Pallet<T> { 
+		pub fn get_property(property_id: PropertyId) -> Option<Property<T>> {
+			Properties::<T>::get(&property_id)
+		}
 	}
 }
