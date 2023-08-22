@@ -119,8 +119,9 @@ pub mod pallet {
 		NewLandlordRegistered { landlord_id: T::AccountId },
 		NewPropertyRegistered { address: T::Hash, postal_code: T::Hash },
 		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>},
-		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>},
+		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>},
 		OfferAccepted {offer_id: OfferId},
+		ApplicantSignedOffer {applicant_id: T::AccountId},
 	}
 
 	#[pallet::error]
@@ -141,6 +142,9 @@ pub mod pallet {
 		TenancyAlreadyExists,
 		MaxOffersForApplicantReached,
 		InsufficientFundsForOffer,
+		OfferExpired,
+		OfferValidUntilMustBeFuture,
+		OfferCannotBeAccepted,
 	}
 
 	#[pallet::call]
@@ -206,24 +210,24 @@ pub mod pallet {
 
 		#[pallet::call_index(4)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn submit_offer(origin: OriginFor<T>, listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>) -> DispatchResult {
+		pub fn submit_offer(origin: OriginFor<T>, listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>) -> DispatchResult {
 			let applicant_id = ensure_signed(origin)?;
 			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
 			ensure!(Listings::<T>::contains_key(&listing_id), Error::<T>::ListingDoesNotExist);
 			ensure!(T::NativeBalance::total_balance(&applicant_id) >= offer_price.into(), Error::<T>::InsufficientFundsForOffer);
 			let offer_listing = Listings::<T>::get(&listing_id).unwrap();
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
+			ensure!(valid_until > current_block_number, Error::<T>::OfferValidUntilMustBeFuture); // Maybe add min? Don't want one block offers
 			ensure!(offer_start_date >= current_block_number
 					&& offer_start_date < offer_end_date
 					&& offer_start_date >= offer_listing.availability_date, Error::<T>::InvalidOfferStartDate);
 			
 			ensure!(prospective_tenant_ids.len() > 0, Error::<T>::TenantsIdsCannotBeEmpty);
-			ensure!(&prospective_tenant_ids.iter().all(|applicant_id| VerifiedApplicants::<T>::contains_key(&applicant_id)), Error::<T>::AllApplicantsMustBeVerified);
-			
+			ensure!(&prospective_tenant_ids.iter().all(|(applicant_id, signed)| VerifiedApplicants::<T>::contains_key(&applicant_id)), Error::<T>::AllApplicantsMustBeVerified);
 			let offer_count = OfferCounter::<T>::get().unwrap_or_default();
 			ensure!(offer_count.checked_add(1).is_some(), Error::<T>::TooManyOffers); // change to storage overflow
 			let new_offer_id = offer_count + 1;
-			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, applicant_id.clone(), prospective_tenant_ids.clone());
+			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, applicant_id.clone(), prospective_tenant_ids.clone(), valid_until);
 			// new_offer.clone() does not work??
 			// let new_offer2 = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
 			// We should prevent people from making multiple offers on a property.
@@ -255,6 +259,8 @@ pub mod pallet {
 			ensure!(Offers::<T>::contains_key(&offer_id), Error::<T>::OfferDoesNotExist);
 			let mut offer = Offers::<T>::get(&offer_id).unwrap();
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
+			ensure!(current_block_number <= offer.valid_until, Error::<T>::OfferExpired);
+			ensure!(offer.offer_status == OfferStatus::Pending, Error::<T>::OfferCannotBeAccepted);
 			ensure!(offer.offer_start_date > current_block_number, Error::<T>::InvalidOfferStartDate); // add a buffer time maybe? start date must be at least curr + 100 blocks?
 			let property_id = offer.property_id;
 			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
@@ -279,8 +285,19 @@ pub mod pallet {
 			// Self::deposit_event(Event::TenancyCreated {});
 			Ok(())
 		}
-
 	}
+
+
+	// #[pallet::call_index(6)]
+	// #[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+	// pub fn sign_offer(origin: OriginFor<T>, offer_id: OfferId) -> DispatchResult {
+
+	// 	Self::deposit_event(Event::ApplicantSignedOffer {applicant_id});
+	// 	Ok(())
+	// }
+
+
+	
 	impl<T: Config> Pallet<T> { 
 		pub fn get_property(property_id: PropertyId) -> Option<Property<T>> {
 			Properties::<T>::get(&property_id)
