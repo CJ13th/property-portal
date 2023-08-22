@@ -57,7 +57,7 @@ pub struct Tenancy<T: Config> {
     pub rental_price: u32,
     pub start_date: BlockNumberFor<T>,
     pub end_date: BlockNumberFor<T>,
-    pub tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>,
+    pub tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>,
 }
 
 impl<T: Config> Tenancy<T> {
@@ -81,13 +81,17 @@ pub struct Offer<T: Config> {
     pub offer_start_date: BlockNumberFor<T>,
     pub offer_end_date: BlockNumberFor<T>,
     pub lead_tenant: T::AccountId,
-    pub prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>,
+    pub prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>,
+    pub prospective_tenant_signatures: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>,
     pub offer_status: OfferStatus,
     pub valid_until: BlockNumberFor<T>,
+    pub all_signed: bool,
 }
 
 impl<T: Config> Offer<T> {
-    pub fn new(offer_id: OfferId, property_id: PropertyId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, lead_tenant: T::AccountId, prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>) -> Offer<T> {
+    pub fn new(offer_id: OfferId, property_id: PropertyId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, lead_tenant: T::AccountId, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>, prospective_tenant_signatures:  BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>, all_signed: bool) -> Offer<T> {
+        let number_of_prospective_tenants = prospective_tenant_ids.len();
+
         Offer {
             offer_id,
             property_id,
@@ -96,8 +100,10 @@ impl<T: Config> Offer<T> {
             offer_end_date,
             lead_tenant,
             prospective_tenant_ids,
+            prospective_tenant_signatures,
             offer_status: OfferStatus::Pending,
             valid_until,
+            all_signed,
         }
     }
 }

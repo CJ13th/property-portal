@@ -119,7 +119,7 @@ pub mod pallet {
 		NewLandlordRegistered { landlord_id: T::AccountId },
 		NewPropertyRegistered { address: T::Hash, postal_code: T::Hash },
 		NewListingCreated {property_id: PropertyId, rental_price: u32, availability_date:BlockNumberFor<T>},
-		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>},
+		NewOfferSubmitted {listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>},
 		OfferAccepted {offer_id: OfferId},
 		ApplicantSignedOffer {applicant_id: T::AccountId},
 	}
@@ -145,6 +145,8 @@ pub mod pallet {
 		OfferExpired,
 		OfferValidUntilMustBeFuture,
 		OfferCannotBeAccepted,
+		TooManyTenants,
+		OfferNotFullySigned,
 	}
 
 	#[pallet::call]
@@ -210,7 +212,7 @@ pub mod pallet {
 
 		#[pallet::call_index(4)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn submit_offer(origin: OriginFor<T>, listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>) -> DispatchResult {
+		pub fn submit_offer(origin: OriginFor<T>, listing_id: ListingId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>) -> DispatchResult {
 			let applicant_id = ensure_signed(origin)?;
 			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
 			ensure!(Listings::<T>::contains_key(&listing_id), Error::<T>::ListingDoesNotExist);
@@ -223,11 +225,17 @@ pub mod pallet {
 					&& offer_start_date >= offer_listing.availability_date, Error::<T>::InvalidOfferStartDate);
 			
 			ensure!(prospective_tenant_ids.len() > 0, Error::<T>::TenantsIdsCannotBeEmpty);
-			ensure!(&prospective_tenant_ids.iter().all(|(applicant_id, signed)| VerifiedApplicants::<T>::contains_key(&applicant_id)), Error::<T>::AllApplicantsMustBeVerified);
+			// ensure!(prospective_tenant_ids.len() <= T::MaxNumberOfTenants::get(), Error::<T>::TooManyTenants); Not necessary?
+			ensure!(&prospective_tenant_ids.iter().all(|applicant_id| VerifiedApplicants::<T>::contains_key(&applicant_id)), Error::<T>::AllApplicantsMustBeVerified);
 			let offer_count = OfferCounter::<T>::get().unwrap_or_default();
 			ensure!(offer_count.checked_add(1).is_some(), Error::<T>::TooManyOffers); // change to storage overflow
 			let new_offer_id = offer_count + 1;
-			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, applicant_id.clone(), prospective_tenant_ids.clone(), valid_until);
+
+			let number_of_prospective_tenants = prospective_tenant_ids.len();
+			let init_ids_and_sigs: Vec<(T::AccountId, bool)> = prospective_tenant_ids.clone().into_iter().map(|t_id| if number_of_prospective_tenants == 1 {(t_id, true)} else {if t_id == applicant_id {(t_id, true)} else {(t_id, false)}}).collect();
+			let prospective_tenant_signatures = BoundedVec::try_from(init_ids_and_sigs).map_err(|_| Error::<T>::TooManyTenants)?; // should not be possible to err here
+			let all_signed = if number_of_prospective_tenants == 1 { true } else { false };
+			let new_offer = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, applicant_id.clone(), prospective_tenant_ids.clone(), prospective_tenant_signatures, valid_until, all_signed);
 			// new_offer.clone() does not work??
 			// let new_offer2 = Offer::new(new_offer_id, offer_listing.property_id, offer_price, offer_start_date, offer_end_date, prospective_tenant_ids.clone());
 			// We should prevent people from making multiple offers on a property.
@@ -261,6 +269,7 @@ pub mod pallet {
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
 			ensure!(current_block_number <= offer.valid_until, Error::<T>::OfferExpired);
 			ensure!(offer.offer_status == OfferStatus::Pending, Error::<T>::OfferCannotBeAccepted);
+			ensure!(offer.all_signed, Error::<T>::OfferNotFullySigned);
 			ensure!(offer.offer_start_date > current_block_number, Error::<T>::InvalidOfferStartDate); // add a buffer time maybe? start date must be at least curr + 100 blocks?
 			let property_id = offer.property_id;
 			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
@@ -285,16 +294,41 @@ pub mod pallet {
 			// Self::deposit_event(Event::TenancyCreated {});
 			Ok(())
 		}
+		
+
+		#[pallet::call_index(6)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn sign_offer(origin: OriginFor<T>, offer_id: OfferId) -> DispatchResult {
+			let applicant_id = ensure_signed(origin)?;
+			ensure!(VerifiedApplicants::<T>::contains_key(&applicant_id), Error::<T>::Unauthorized);
+			ensure!(Offers::<T>::contains_key(&offer_id), Error::<T>::OfferDoesNotExist);
+			let mut offer = Offers::<T>::get(&offer_id).unwrap();
+			let current_block_number =  frame_system::Pallet::<T>::block_number();
+			ensure!(current_block_number <= offer.valid_until, Error::<T>::OfferExpired);
+			ensure!(offer.offer_status == OfferStatus::Pending, Error::<T>::OfferCannotBeAccepted);
+			let new_tenants = offer.prospective_tenant_signatures.into_iter().map(|(app_id, signed)| if app_id == applicant_id {(app_id, true)} else {(app_id, signed)}).collect::<Vec<(T::AccountId, bool)>>();
+			let all_signed = new_tenants.iter().all(|(applicant_id, signed)| *signed == true);
+			let updated_prospective_tenants = BoundedVec::try_from(new_tenants).map_err(|_| Error::<T>::TooManyTenants)?; // should never happen since we don't ever append 
+			offer.prospective_tenant_signatures = updated_prospective_tenants;
+			offer.all_signed = all_signed;
+			
+			Offers::<T>::insert(&offer_id, offer);
+
+
+			/*
+			Get the offer
+			is the offer still valid? Still in the pending state
+			Update the prospective tenants list
+			If all tenants have signed then set the offer to fully_signed = true
+			*/
+
+			Self::deposit_event(Event::ApplicantSignedOffer {applicant_id});
+			Ok(())
+		}
 	}
 
 
-	// #[pallet::call_index(6)]
-	// #[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-	// pub fn sign_offer(origin: OriginFor<T>, offer_id: OfferId) -> DispatchResult {
-
-	// 	Self::deposit_event(Event::ApplicantSignedOffer {applicant_id});
-	// 	Ok(())
-	// }
+	
 
 
 	
