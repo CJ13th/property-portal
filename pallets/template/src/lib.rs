@@ -289,6 +289,13 @@ pub mod pallet {
 			// 250 locked for each, 250 from each transferred to landlord.
 			// Also need a way to override this so that custom amounts can be locked/sent.
 			// Two flat mates might share but one has ensuite and pay 100 more than the other.
+
+			/*
+			3 tenants 1000 rent
+			333 = 1000.checked_div(3)
+			1 = 1000 - (333 * 3)
+			The lead tenant pays the extra 1.
+			*/
 			
 			Self::deposit_event(Event::OfferAccepted {offer_id});
 			// Self::deposit_event(Event::TenancyCreated {});

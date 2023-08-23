@@ -90,7 +90,6 @@ pub struct Offer<T: Config> {
 
 impl<T: Config> Offer<T> {
     pub fn new(offer_id: OfferId, property_id: PropertyId, offer_price: u32, offer_start_date: BlockNumberFor<T>, offer_end_date: BlockNumberFor<T>, lead_tenant: T::AccountId, prospective_tenant_ids: BoundedVec<T::AccountId, T::MaxNumberOfTenants>, prospective_tenant_signatures:  BoundedVec<(T::AccountId, bool), T::MaxNumberOfTenants>, valid_until: BlockNumberFor<T>, all_signed: bool) -> Offer<T> {
-        let number_of_prospective_tenants = prospective_tenant_ids.len();
 
         Offer {
             offer_id,

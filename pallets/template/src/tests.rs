@@ -66,14 +66,17 @@ fn funds_are_transferred_on_offer_accepted() {
 	new_test_ext().execute_with(|| {
 		// Go past genesis block so events get deposited
 		System::set_block_number(1);
-		assert_ok!(RealEstate::register_applicant(RuntimeOrigin::root(), 1));
-		let _ = <Balances as fungible::Mutate<_>>::mint_into(&1, 1000);
-		assert_eq!(Balances::free_balance(&1), 1000);
+		assert_ok!(RealEstate::register_applicant(RuntimeOrigin::root(), 101));
+		assert_ok!(RealEstate::register_applicant(RuntimeOrigin::root(), 102));
+		let _ = <Balances as fungible::Mutate<_>>::mint_into(&101, 1000);
+		assert_eq!(Balances::free_balance(&101), 1000);
 		assert_ok!(RealEstate::register_property(RuntimeOrigin::root(), sp_core::H256::repeat_byte(1), sp_core::H256::repeat_byte(1), 2));
 		assert_ok!(RealEstate::create_listing(RuntimeOrigin::signed(2), 1, 1000, 50));
 		let mut tenants = BoundedVec::new();
-		tenants.try_push((1)).unwrap();
-		assert_ok!(RealEstate::submit_offer(RuntimeOrigin::signed(1), 1, 900, 51, 101, tenants, 100));
+		tenants.try_push((101)).unwrap();
+		tenants.try_push((102)).unwrap();
+		assert_ok!(RealEstate::submit_offer(RuntimeOrigin::signed(101), 1, 900, 51, 101, tenants, 100));
+		assert_ok!(RealEstate::sign_offer(RuntimeOrigin::signed(102), 1));
 
 		assert_eq!(Balances::free_balance(&2), 0);
 		let p = Property {
