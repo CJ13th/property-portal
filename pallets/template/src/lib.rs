@@ -193,6 +193,7 @@ pub mod pallet {
 		pub fn create_listing(origin: OriginFor<T>, property_id: PropertyId, rental_price: u32, availability_date: BlockNumberFor<T>) -> DispatchResult {
 			// Only landlords and their agents should be able to list properties
 			let landlord_id = ensure_signed(origin)?;
+			ensure!(VerifiedLandlords::<T>::contains_key(&landlord_id), Error::<T>::LandlordNotVerified);
 			ensure!(Properties::<T>::contains_key(&property_id), Error::<T>::PropertyDoesNotExist);
 
 			let property = Properties::<T>::get(property_id).unwrap();
@@ -264,6 +265,7 @@ pub mod pallet {
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn accept_offer(origin: OriginFor<T>, offer_id: OfferId) -> DispatchResult {
 			let landlord_id = ensure_signed(origin)?;
+			ensure!(VerifiedLandlords::<T>::contains_key(&landlord_id), Error::<T>::LandlordNotVerified);
 			ensure!(Offers::<T>::contains_key(&offer_id), Error::<T>::OfferDoesNotExist);
 			let mut offer = Offers::<T>::get(&offer_id).unwrap();
 			let current_block_number =  frame_system::Pallet::<T>::block_number();
